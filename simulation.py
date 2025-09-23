@@ -98,16 +98,27 @@ def get_live_price(dhan, security_id):
         print(f"Error fetching live price for security ID {security_id}: {e}")
     return 0.0
 
-def get_bank_nifty_spot_price(dhan):
+def get_bank_nifty_spot_price(dhan, instrument_df):
     """
-    Fetches the live spot price for the Bank Nifty index.
+    Fetches the live spot price for the Bank Nifty index by finding its security ID dynamically.
     """
     try:
-        # The security ID for NIFTY BANK index is '26009'.
-        payload = {'NSE_INDEX': ['26009']}
+        # Find the security ID for the NIFTY BANK index from the instrument file
+        bn_index = instrument_df[
+            (instrument_df['SM_SYMBOL_NAME'] == 'NIFTY BANK') &
+            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_INDEX')
+        ]
+        if bn_index.empty:
+            print("Error: Could not find 'NIFTY BANK' in the instrument file.")
+            return 0.0
+
+        security_id = str(bn_index.iloc[0]['SEM_SMST_SECURITY_ID'])
+
+        payload = {'NSE_INDEX': [security_id]}
         response = dhan.quote_data(securities=payload)
         if response and response.get('status') == 'success':
-            return response['data']['26009']['ltp']
+            return response['data'][security_id]['ltp']
+
     except Exception as e:
         print(f"Error fetching Bank Nifty spot price: {e}")
     return 0.0
@@ -139,7 +150,7 @@ def run_simulation(dhan):
     instrument_df = get_instrument_file()
     if instrument_df is None: return
 
-    spot_price = get_bank_nifty_spot_price(dhan)
+    spot_price = get_bank_nifty_spot_price(dhan, instrument_df)
     if spot_price == 0.0:
         print("Could not fetch spot price. Exiting.")
         return
