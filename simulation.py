@@ -119,6 +119,8 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
         response = dhan.quote_data(securities=payload)
         if response and response.get('status') == 'success':
             return response['data'][security_id]['ltp']
+        else:
+            print(f"DEBUG: API call to fetch spot price failed. Full response: {response}")
 
     except Exception as e:
         print(f"Error fetching Bank Nifty spot price: {e}")
