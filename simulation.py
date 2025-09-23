@@ -113,9 +113,13 @@ def run_simulation(tradehull):
         return
 
     # Use the get_ltp method from the Tradehull class
-    spot_price = tradehull.get_ltp(config.TRADING_SYMBOL)
+    # spot_price = tradehull.get_ltp(config.TRADING_SYMBOL)
+    # WORKAROUND: Use manual spot price from config as per user request
+    spot_price = config.MANUAL_SPOT_PRICE
+    print(f"WORKAROUND: Using manual spot price: {spot_price}")
+
     if spot_price == 0.0:
-        print("Could not fetch spot price using Tradehull. Exiting.")
+        print("Could not fetch spot price. Exiting.")
         return
 
     # The find_weekly_expiry function still uses the instrument_df, which is fine
