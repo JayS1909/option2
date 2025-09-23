@@ -104,12 +104,13 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
     """
     try:
         # Find the security ID for the NIFTY BANK index from the instrument file
+        # Note: The symbol name for the index is 'BANKNIFTY' not 'NIFTY BANK'
         bn_index = instrument_df[
-            (instrument_df['SM_SYMBOL_NAME'] == 'NIFTY BANK') &
+            (instrument_df['SM_SYMBOL_NAME'] == config.TRADING_SYMBOL) &
             (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_INDEX')
         ]
         if bn_index.empty:
-            print("Error: Could not find 'NIFTY BANK' in the instrument file.")
+            print(f"Error: Could not find '{config.TRADING_SYMBOL}' index in the instrument file.")
             return 0.0
 
         security_id = str(bn_index.iloc[0]['SEM_SMST_SECURITY_ID'])
