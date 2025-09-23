@@ -158,7 +158,7 @@ def export_to_excel(trade_log):
     """Exports the trade log dictionary to an Excel file."""
     if not trade_log: return
     new_df = pd.DataFrame([trade_log])
-    filename = config.EXCEL_FILE_NAME
+    filename = config.LIVE_TRADE_EXCEL_FILE
     columns = list(trade_log.keys())
     new_df = new_df[columns]
 
