@@ -7,8 +7,9 @@ import time as os_time
 
 try:
     from dhanhq import dhanhq
+    from Dhan_Tradehull import Tradehull
 except ImportError:
-    print("FATAL ERROR: The 'dhanhq' library is not installed. Please run 'pip install dhanhq'.")
+    print("FATAL ERROR: A required library ('dhanhq' or 'Dhan_Tradehull') is not available.")
     exit()
 
 # --- Helper Functions ---
@@ -81,57 +82,11 @@ def find_weekly_expiry(instrument_df):
     print(f"Found nearest weekly expiry: {nearest_expiry.strftime('%Y-%m-%d')}")
     return nearest_expiry.strftime('%Y-%m-%d')
 
-def get_live_price(dhan, security_id):
-    """
-    Fetches the live Last Traded Price (LTP) for a given security ID.
-    """
-    if not security_id: return 0.0
-    try:
-        # The quote_data method expects a dictionary payload.
-        payload = {'NSE_FNO': [security_id]}
-        response = dhan.quote_data(securities=payload)
-
-        if response and response.get('status') == 'success':
-            # The response nests the data under the security ID
-            return response['data'][security_id]['ltp']
-    except Exception as e:
-        print(f"Error fetching live price for security ID {security_id}: {e}")
-    return 0.0
-
-def get_bank_nifty_spot_price(dhan, instrument_df):
-    """
-    Fetches the live spot price for the Bank Nifty index by finding its security ID dynamically.
-    """
-    try:
-        # Find the security ID for the NIFTY BANK index from the instrument file
-        # Note: The symbol name for the index is 'BANKNIFTY' not 'NIFTY BANK'
-        # Using .str.strip() and .str.lower() for a robust, case-insensitive search.
-        bn_index = instrument_df[
-            (instrument_df['SM_SYMBOL_NAME'].str.strip().str.lower() == config.TRADING_SYMBOL.lower()) &
-            (instrument_df['SEM_EXM_EXCH_ID'].str.strip() == 'NSE')
-        ]
-        if bn_index.empty:
-            print(f"Error: Could not find '{config.TRADING_SYMBOL}' index in the instrument file.")
-            return 0.0
-
-        security_id = str(bn_index.iloc[0]['SEM_SMST_SECURITY_ID'])
-
-        # For indices, the segment is 'IDX_I'.
-        payload = {'IDX_I': [security_id]}
-        response = dhan.quote_data(securities=payload)
-        if response and response.get('status') == 'success':
-            # The response for indices is a list within the segment key.
-            return response['data']['IDX_I'][0]['ltp']
-
-    except Exception as e:
-        print(f"Error fetching Bank Nifty spot price: {e}")
-    return 0.0
-
 # --- Main Simulation Logic ---
 
-def run_simulation(dhan):
+def run_simulation(tradehull):
     """
-    The main function to run the entire trading simulation for a day.
+    The main function to run the entire trading simulation for a day, using the Tradehull class.
     """
     print("--- Starting 9:20 Hedged OTM Strategy Simulation ---")
 
@@ -151,14 +106,19 @@ def run_simulation(dhan):
     print(f"\n--- Entry Time Reached! ---")
 
     # --- Get Instruments and Initial Data ---
-    instrument_df = get_instrument_file()
-    if instrument_df is None: return
-
-    spot_price = get_bank_nifty_spot_price(dhan, instrument_df)
-    if spot_price == 0.0:
-        print("Could not fetch spot price. Exiting.")
+    # The instrument_df is now loaded by the Tradehull class during initialization
+    instrument_df = tradehull.instrument_df
+    if instrument_df is None or instrument_df.empty:
+        print("Could not get instrument file from Tradehull object. Exiting.")
         return
 
+    # Use the get_ltp method from the Tradehull class
+    spot_price = tradehull.get_ltp(config.TRADING_SYMBOL)
+    if spot_price == 0.0:
+        print("Could not fetch spot price using Tradehull. Exiting.")
+        return
+
+    # The find_weekly_expiry function still uses the instrument_df, which is fine
     expiry_date = find_weekly_expiry(instrument_df)
 
     print(f"Executing trade with Spot Price: {spot_price} and Expiry: {expiry_date}")
@@ -184,11 +144,9 @@ def run_simulation(dhan):
         symbol = construct_trading_symbol(
             config.TRADING_SYMBOL, expiry_date, leg_data['strike'], leg_data['type']
         )
-        sec_id = get_security_id_from_symbol(instrument_df, symbol)
-
         leg_data['symbol'] = symbol
-        leg_data['sec_id'] = sec_id
-        leg_data['entry_price'] = get_live_price(dhan, sec_id)
+        # Use the tradehull get_ltp method, which takes the symbol directly
+        leg_data['entry_price'] = tradehull.get_ltp(symbol)
         leg_data['status'] = 'OPEN'
         leg_data['exit_price'] = 0.0
         leg_data['pnl'] = 0.0
@@ -226,7 +184,7 @@ def run_simulation(dhan):
 
             for leg_name, leg_data in trade_legs.items():
                 if 'Short' in leg_name and leg_data['status'] == 'OPEN':
-                    current_price = get_live_price(dhan, leg_data['sec_id'])
+                    current_price = tradehull.get_ltp(leg_data['symbol'])
                     print(f"  -> {leg_name}: Current Price = {current_price}, SL = {leg_data['sl']}")
 
                     if current_price >= leg_data['sl']:
@@ -248,7 +206,7 @@ def run_simulation(dhan):
     print(f"\n--- End of Day ({exit_time.strftime('%H:%M:%S')}) Reached. Exiting all open positions. ---")
     for leg_name, leg_data in trade_legs.items():
         if leg_data['status'] == 'OPEN':
-            exit_price = get_live_price(dhan, leg_data['sec_id'])
+            exit_price = tradehull.get_ltp(leg_data['symbol'])
             leg_data['status'] = 'CLOSED_EOD'
             leg_data['exit_price'] = exit_price
             leg_data['exit_time'] = datetime.now().strftime('%H:%M:%S')
@@ -330,11 +288,12 @@ if __name__ == "__main__":
         exit()
 
     try:
-        dhan = dhanhq(CLIENT_ID, ACCESS_TOKEN)
-        print("Dhan API client initialized successfully.")
+        # Instantiate the custom Tradehull class which handles the API connection
+        tradehull_obj = Tradehull(CLIENT_ID, ACCESS_TOKEN)
+        print("Tradehull object initialized successfully.")
 
         # Run the main simulation
-        simulation_result = run_simulation(dhan)
+        simulation_result = run_simulation(tradehull_obj)
 
     except Exception as e:
         print(f"An error occurred during script execution: {e}")
