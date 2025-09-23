@@ -117,6 +117,7 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
 
         payload = {'NSE_INDEX': [security_id]}
         response = dhan.quote_data(securities=payload)
+        print(f"DEBUG: Full API response for spot price: {response}") # Final debug step
         if response and response.get('status') == 'success':
             return response['data'][security_id]['ltp']
         else:
