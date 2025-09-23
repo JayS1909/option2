@@ -87,10 +87,13 @@ def get_live_price(dhan, security_id):
     """
     if not security_id: return 0.0
     try:
-        # Dhan API requires exchange segment for options
-        response = dhan.get_quote(security_id, exchange_segment='NSE_FNO')
+        # The quote_data method expects a dictionary payload.
+        payload = {'NSE_FNO': [security_id]}
+        response = dhan.quote_data(securities=payload)
+
         if response and response.get('status') == 'success':
-            return response['data']['ltp']
+            # The response nests the data under the security ID
+            return response['data'][security_id]['ltp']
     except Exception as e:
         print(f"Error fetching live price for security ID {security_id}: {e}")
     return 0.0
@@ -100,12 +103,11 @@ def get_bank_nifty_spot_price(dhan):
     Fetches the live spot price for the Bank Nifty index.
     """
     try:
-        # The security ID for NIFTY BANK index is '26009' in the new master file.
-        # A more robust way is to find it from the instrument file.
-        # For now, using the known ID for indices.
-        response = dhan.get_quote('26009', exchange_segment='NSE_INDEX')
+        # The security ID for NIFTY BANK index is '26009'.
+        payload = {'NSE_INDEX': ['26009']}
+        response = dhan.quote_data(securities=payload)
         if response and response.get('status') == 'success':
-            return response['data']['ltp']
+            return response['data']['26009']['ltp']
     except Exception as e:
         print(f"Error fetching Bank Nifty spot price: {e}")
     return 0.0
