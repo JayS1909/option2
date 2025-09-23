@@ -116,10 +116,12 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
 
         security_id = str(bn_index.iloc[0]['SEM_SMST_SECURITY_ID'])
 
-        payload = {'NSE_INDEX': [security_id]}
+        # For indices, the segment is 'IDX_I'.
+        payload = {'IDX_I': [security_id]}
         response = dhan.quote_data(securities=payload)
         if response and response.get('status') == 'success':
-            return response['data'][security_id]['ltp']
+            # The response for indices is a list within the segment key.
+            return response['data']['IDX_I'][0]['ltp']
 
     except Exception as e:
         print(f"Error fetching Bank Nifty spot price: {e}")
