@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime, date, time, timedelta
 import os
 import time as os_time
-import traceback
 
 try:
     from dhanhq import dhanhq
@@ -73,7 +72,7 @@ def find_weekly_expiry(instrument_df):
     today = date.today()
     # Filter for BANKNIFTY index options using the correct column names
     bn_options = instrument_df[
-        (instrument_df['SM_SYMBOL_NAME'] == 'BANKNIFTY') &
+        (instrument_df['SM_SYMBOL_NAME'].str.contains(config.TRADING_SYMBOL, case=False, na=False)) &
         (instrument_df['SEM_EXCH_INSTRUMENT_TYPE'] == 'OPTIDX') &
         (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO')
     ].copy()
@@ -89,158 +88,154 @@ def run_simulation(tradehull):
     """
     The main function to run the entire trading simulation for a day, using the Tradehull class.
     """
-    try:
-        print("--- Starting 9:20 Hedged OTM Strategy Simulation ---")
+    print("--- Starting 9:20 Hedged OTM Strategy Simulation ---")
 
-        # --- Wait for 9:20 AM ---
+    # --- Wait for 9:20 AM ---
+    entry_time = time(9, 20)
+    now = datetime.now().time()
+
+    # --- Wait for 9:20 AM ---
+    if not config.DEV_MODE:
         entry_time = time(9, 20)
-        now = datetime.now().time()
+        while datetime.now().time() < entry_time:
+            print(f"Waiting for 9:20 AM. Current time: {datetime.now().strftime('%H:%M:%S')}", end="\r")
+            os_time.sleep(5)
+    else:
+        print("--- DEV MODE: Skipping wait for 9:20 AM ---")
 
-        # --- Wait for 9:20 AM ---
-        if not config.DEV_MODE:
-            entry_time = time(9, 20)
-            while datetime.now().time() < entry_time:
-                print(f"Waiting for 9:20 AM. Current time: {datetime.now().strftime('%H:%M:%S')}", end="\r")
-                os_time.sleep(5)
-        else:
-            print("--- DEV MODE: Skipping wait for 9:20 AM ---")
+    print(f"\n--- Entry Time Reached! ---")
 
-        print(f"\n--- Entry Time Reached! ---")
+    # --- Get Instruments and Initial Data ---
+    # The instrument_df is now loaded by the Tradehull class during initialization
+    instrument_df = tradehull.instrument_df
+    if instrument_df is None or instrument_df.empty:
+        print("Could not get instrument file from Tradehull object. Exiting.")
+        return
 
-        # --- Get Instruments and Initial Data ---
-        # The instrument_df is now loaded by the Tradehull class during initialization
-        instrument_df = tradehull.instrument_df
-        if instrument_df is None or instrument_df.empty:
-            print("Could not get instrument file from Tradehull object. Exiting.")
-            return
+    # Use the get_ltp method from the Tradehull class
+    # spot_price = tradehull.get_ltp(config.TRADING_SYMBOL)
+    # WORKAROUND: Use manual spot price from config as per user request
+    spot_price = config.MANUAL_SPOT_PRICE
+    print(f"WORKAROUND: Using manual spot price: {spot_price}")
 
-        # Use the get_ltp method from the Tradehull class
-        # spot_price = tradehull.get_ltp(config.TRADING_SYMBOL)
-        # WORKAROUND: Use manual spot price from config as per user request
-        spot_price = config.MANUAL_SPOT_PRICE
-        print(f"WORKAROUND: Using manual spot price: {spot_price}")
+    if spot_price == 0.0:
+        print("Could not fetch spot price. Exiting.")
+        return
 
-        if spot_price == 0.0:
-            print("Could not fetch spot price. Exiting.")
-            return
+    # The find_weekly_expiry function still uses the instrument_df, which is fine
+    expiry_date = find_weekly_expiry(instrument_df)
 
-        # The find_weekly_expiry function still uses the instrument_df, which is fine
-        expiry_date = find_weekly_expiry(instrument_df)
+    print(f"Executing trade with Spot Price: {spot_price} and Expiry: {expiry_date}")
 
-        print(f"Executing trade with Spot Price: {spot_price} and Expiry: {expiry_date}")
+    # --- Calculate Strikes ---
+    strike_base = int(round(spot_price / 100) * 100)
+    short_ce_strike = strike_base + config.SHORT_OTM_DISTANCE
+    short_pe_strike = strike_base - config.SHORT_OTM_DISTANCE
+    hedge_ce_strike = short_ce_strike + config.HEDGE_DISTANCE
+    hedge_pe_strike = short_pe_strike - config.HEDGE_DISTANCE
 
-        # --- Calculate Strikes ---
-        strike_base = int(round(spot_price / 100) * 100)
-        short_ce_strike = strike_base + config.SHORT_OTM_DISTANCE
-        short_pe_strike = strike_base - config.SHORT_OTM_DISTANCE
-        hedge_ce_strike = short_ce_strike + config.HEDGE_DISTANCE
-        hedge_pe_strike = short_pe_strike - config.HEDGE_DISTANCE
+    # --- Create a dictionary to hold all trade leg data ---
+    trade_legs = {
+        'Short_CE': {'type': 'CE', 'strike': short_ce_strike, 'action': 'SELL'},
+        'Hedge_CE': {'type': 'CE', 'strike': hedge_ce_strike, 'action': 'BUY'},
+        'Short_PE': {'type': 'PE', 'strike': short_pe_strike, 'action': 'SELL'},
+        'Hedge_PE': {'type': 'PE', 'strike': hedge_pe_strike, 'action': 'BUY'}
+    }
 
-        # --- Create a dictionary to hold all trade leg data ---
-        trade_legs = {
-            'Short_CE': {'type': 'CE', 'strike': short_ce_strike, 'action': 'SELL'},
-            'Hedge_CE': {'type': 'CE', 'strike': hedge_ce_strike, 'action': 'BUY'},
-            'Short_PE': {'type': 'PE', 'strike': short_pe_strike, 'action': 'SELL'},
-            'Hedge_PE': {'type': 'PE', 'strike': hedge_pe_strike, 'action': 'BUY'}
-        }
+    # --- Find Security IDs and Entry Prices ---
+    print("\nFetching entry premiums at 9:20 AM...")
+    for leg_name, leg_data in trade_legs.items():
+        symbol = construct_trading_symbol(
+            config.TRADING_SYMBOL, expiry_date, leg_data['strike'], leg_data['type']
+        )
+        leg_data['symbol'] = symbol
+        # Use the tradehull get_ltp method, which takes the symbol directly
+        leg_data['entry_price'] = tradehull.get_ltp(symbol)
+        leg_data['status'] = 'OPEN'
+        leg_data['exit_price'] = 0.0
+        leg_data['pnl'] = 0.0
 
-        # --- Find Security IDs and Entry Prices ---
-        print("\nFetching entry premiums at 9:20 AM...")
-        for leg_name, leg_data in trade_legs.items():
-            symbol = construct_trading_symbol(
-                config.TRADING_SYMBOL, expiry_date, leg_data['strike'], leg_data['type']
-            )
-            leg_data['symbol'] = symbol
-            # Use the tradehull get_ltp method, which takes the symbol directly
-            leg_data['entry_price'] = tradehull.get_ltp(symbol)
-            leg_data['status'] = 'OPEN'
-            leg_data['exit_price'] = 0.0
-            leg_data['pnl'] = 0.0
+        if 'Short' in leg_name:
+            sl_price = leg_data['entry_price'] * (1 + config.SL_PERCENTAGE / 100)
+            leg_data['sl'] = round(sl_price, 1)
 
-            if 'Short' in leg_name:
-                sl_price = leg_data['entry_price'] * (1 + config.SL_PERCENTAGE / 100)
-                leg_data['sl'] = round(sl_price, 1)
+        print(f"  -> {leg_name} ({leg_data['symbol']}): Fetched Premium = {leg_data['entry_price']}" + (f", SL = {leg_data['sl']}" if 'sl' in leg_data else ""))
 
-            print(f"  -> {leg_name} ({leg_data['symbol']}): Fetched Premium = {leg_data['entry_price']}" + (f", SL = {leg_data['sl']}" if 'sl' in leg_data else ""))
+    # --- Store all data in a master dictionary ---
+    simulation_data = {
+        'Date': date.today().strftime('%Y-%m-%d'),
+        'Timestamp': datetime.now().strftime('%H:%M:%S'),
+        'Spot_Price_Entry': spot_price,
+        'Legs': trade_legs,
+        'Net_Credit': (trade_legs['Short_CE']['entry_price'] + trade_legs['Short_PE']['entry_price']) - \
+                      (trade_legs['Hedge_CE']['entry_price'] + trade_legs['Hedge_PE']['entry_price']),
+        'Total_PL': 0.0
+    }
 
-        # --- Store all data in a master dictionary ---
-        simulation_data = {
-            'Date': date.today().strftime('%Y-%m-%d'),
-            'Timestamp': datetime.now().strftime('%H:%M:%S'),
-            'Spot_Price_Entry': spot_price,
-            'Legs': trade_legs,
-            'Net_Credit': (trade_legs['Short_CE']['entry_price'] + trade_legs['Short_PE']['entry_price']) - \
-                          (trade_legs['Hedge_CE']['entry_price'] + trade_legs['Hedge_PE']['entry_price']),
-            'Total_PL': 0.0
-        }
+    print(f"\nInitial Net Credit: {simulation_data['Net_Credit']:.2f}")
+    print("\n--- Core Engine Setup Complete. Now Monitoring for SL or EOD Exit. ---")
 
-        print(f"\nInitial Net Credit: {simulation_data['Net_Credit']:.2f}")
-        print("\n--- Core Engine Setup Complete. Now Monitoring for SL or EOD Exit. ---")
+    # --- Monitoring Loop ---
+    exit_time = time(15, 0) # 3:00 PM
+    now = datetime.now()
 
-        # --- Monitoring Loop ---
+    # --- Monitoring Loop ---
+    if not config.DEV_MODE:
         exit_time = time(15, 0) # 3:00 PM
-        now = datetime.now()
+        while datetime.now().time() < exit_time:
+            now = datetime.now()
+            print(f"\nChecking prices at {now.strftime('%H:%M:%S')}...")
 
-        # --- Monitoring Loop ---
-        if not config.DEV_MODE:
-            exit_time = time(15, 0) # 3:00 PM
-            while datetime.now().time() < exit_time:
-                now = datetime.now()
-                print(f"\nChecking prices at {now.strftime('%H:%M:%S')}...")
+            for leg_name, leg_data in trade_legs.items():
+                if 'Short' in leg_name and leg_data['status'] == 'OPEN':
+                    current_price = tradehull.get_ltp(leg_data['symbol'])
+                    print(f"  -> {leg_name}: Current Price = {current_price}, SL = {leg_data['sl']}")
 
-                for leg_name, leg_data in trade_legs.items():
-                    if 'Short' in leg_name and leg_data['status'] == 'OPEN':
-                        current_price = tradehull.get_ltp(leg_data['symbol'])
-                        print(f"  -> {leg_name}: Current Price = {current_price}, SL = {leg_data['sl']}")
+                    if current_price >= leg_data['sl']:
+                        print(f"!!! STOP-LOSS HIT for {leg_name} at {current_price} !!!")
+                        leg_data['status'] = 'CLOSED_SL'
+                        leg_data['exit_price'] = current_price
+                        leg_data['exit_time'] = now.strftime('%H:%M:%S')
 
-                        if current_price >= leg_data['sl']:
-                            print(f"!!! STOP-LOSS HIT for {leg_name} at {current_price} !!!")
-                            leg_data['status'] = 'CLOSED_SL'
-                            leg_data['exit_price'] = current_price
-                            leg_data['exit_time'] = now.strftime('%H:%M:%S')
+            # Check if both short positions are closed
+            if trade_legs['Short_CE']['status'] != 'OPEN' and trade_legs['Short_PE']['status'] != 'OPEN':
+                print("Both short positions have been stopped out. Ending monitoring.")
+                break
 
-                # Check if both short positions are closed
-                if trade_legs['Short_CE']['status'] != 'OPEN' and trade_legs['Short_PE']['status'] != 'OPEN':
-                    print("Both short positions have been stopped out. Ending monitoring.")
-                    break
+            os_time.sleep(60) # Check every 60 seconds
+    else:
+        print("--- DEV MODE: Skipping SL monitoring loop. Proceeding to EOD exit. ---")
 
-                os_time.sleep(60) # Check every 60 seconds
-        else:
-            print("--- DEV MODE: Skipping SL monitoring loop. Proceeding to EOD exit. ---")
+    # --- Square Off at 3:00 PM ---
+    print(f"\n--- End of Day ({exit_time.strftime('%H:%M:%S')}) Reached. Exiting all open positions. ---")
+    for leg_name, leg_data in trade_legs.items():
+        if leg_data['status'] == 'OPEN':
+            exit_price = tradehull.get_ltp(leg_data['symbol'])
+            leg_data['status'] = 'CLOSED_EOD'
+            leg_data['exit_price'] = exit_price
+            leg_data['exit_time'] = datetime.now().strftime('%H:%M:%S')
+            print(f"  -> Exiting {leg_name} at {exit_price}")
 
-        # --- Square Off at 3:00 PM ---
-        print(f"\n--- End of Day ({exit_time.strftime('%H:%M:%S')}) Reached. Exiting all open positions. ---")
-        for leg_name, leg_data in trade_legs.items():
-            if leg_data['status'] == 'OPEN':
-                exit_price = tradehull.get_ltp(leg_data['symbol'])
-                leg_data['status'] = 'CLOSED_EOD'
-                leg_data['exit_price'] = exit_price
-                leg_data['exit_time'] = datetime.now().strftime('%H:%M:%S')
-                print(f"  -> Exiting {leg_name} at {exit_price}")
+    # --- Final P/L Calculation ---
+    total_pnl = 0
+    for leg_name, leg_data in trade_legs.items():
+        pnl = 0
+        if leg_data['action'] == 'SELL':
+            pnl = (leg_data['entry_price'] - leg_data['exit_price']) * config.LOT_SIZE
+        else: # BUY
+            pnl = (leg_data['exit_price'] - leg_data['entry_price']) * config.LOT_SIZE
+        leg_data['pnl'] = round(pnl, 2)
+        total_pnl += pnl
 
-        # --- Final P/L Calculation ---
-        total_pnl = 0
-        for leg_name, leg_data in trade_legs.items():
-            pnl = 0
-            if leg_data['action'] == 'SELL':
-                pnl = (leg_data['entry_price'] - leg_data['exit_price']) * config.LOT_SIZE
-            else: # BUY
-                pnl = (leg_data['exit_price'] - leg_data['entry_price']) * config.LOT_SIZE
-            leg_data['pnl'] = round(pnl, 2)
-            total_pnl += pnl
+    simulation_data['Total_PL'] = round(total_pnl, 2)
 
-        simulation_data['Total_PL'] = round(total_pnl, 2)
+    print("\n--- Final Results ---")
+    print(f"Total P/L: {simulation_data['Total_PL']:.2f}")
+    for leg_name, leg_data in trade_legs.items():
+        print(f"  -> {leg_name}: P/L = {leg_data['pnl']:.2f}")
 
-        print("\n--- Final Results ---")
-        print(f"Total P/L: {simulation_data['Total_PL']:.2f}")
-        for leg_name, leg_data in trade_legs.items():
-            print(f"  -> {leg_name}: P/L = {leg_data['pnl']:.2f}")
-
-        export_simulation_results(simulation_data)
-        return simulation_data
-    except Exception:
-        print("An error occurred within the simulation. Printing traceback:")
-        traceback.print_exc()
+    export_simulation_results(simulation_data)
+    return simulation_data
 
 def export_simulation_results(data):
     """Formats the simulation data and saves it to an Excel file."""
