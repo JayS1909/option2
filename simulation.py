@@ -323,6 +323,9 @@ if __name__ == "__main__":
     CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
     ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
 
+    print(f"DEBUG: Client ID read from environment: {CLIENT_ID}")
+    print(f"DEBUG: Access Token read from environment (first 10 chars): {ACCESS_TOKEN[:10] if ACCESS_TOKEN else 'None'}")
+
     if not CLIENT_ID or not ACCESS_TOKEN:
         print("FATAL ERROR: Environment variables DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN are not set.")
         print("Please set them before running the script.")
