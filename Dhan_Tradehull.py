@@ -300,56 +300,57 @@ class Tradehull:
 		else:
 			return int(data.iloc[0]['SEM_LOT_UNITS'])
 		
-	def get_ltp(self,name):
+	def get_ltp(self, name):
+		"""
+		Fetches the live Last Traded Price (LTP) for a given instrument name.
+		This function now uses the dhan.quote_data API directly, removing the
+		dependency on the Excel sheet.
+		"""
 		try:
-			exchange_index = {"BANKNIFTY": "NSE_IDX","NIFTY":"NSE_IDX","MIDCPNIFTY":"NSE_IDX", "FINNIFTY":"NSE_IDX","SENSEX":"BSE_IDX","BANKEX":"BSE_IDX"}
-			NFO = ["BANKNIFTY","NIFTY","MIDCPNIFTY","FINNIFTY"]
-			BFO = ['SENSEX','BANKEX']
-			equity = ['CALL','PUT','FUT']
-			if type(name)!=list:
-				nfo_check = ["NFO" for nfo in NFO if nfo in name]
-				bfo_check = ["BFO" for bfo in BFO if bfo in name]
-				exchange_nfo ="NFO" if len(nfo_check)!=0 else False
-				exchange_bfo = 'BFO' if len(bfo_check)!=0 else False
-				if not exchange_nfo and not exchange_bfo:
-					eq_check =["NFO" for nfo in equity if nfo in name]
-					exchange_eq ="NFO" if len(eq_check)!=0 else "NSE"
+			# Check if the instrument is an index
+			if name in self.index_underlying.values():
+				# Logic for fetching index price
+				bn_index = self.instrument_df[
+					(self.instrument_df['SM_SYMBOL_NAME'].str.strip().str.lower() == name.lower()) &
+					(self.instrument_df['SEM_EXM_EXCH_ID'].str.strip() == 'NSE_INDEX')
+				]
+				if bn_index.empty:
+					self.logger.error(f"Could not find index '{name}' with exchange 'NSE_INDEX' in instrument file.")
+					return 0.0
+
+				security_id = str(bn_index.iloc[0]['SEM_SMST_SECURITY_ID'])
+				payload = {'IDX_I': [security_id]}
+				response = self.Dhan.quote_data(securities=payload)
+
+				if response and response.get('status') == 'success':
+					return response['data']['IDX_I'][0]['ltp']
 				else:
-					exchange_eq="NSE"
-				exchange_segment ="NFO" if exchange_nfo else ("BFO" if exchange_bfo else exchange_eq)
-				exchange = exchange_index[name] if name in exchange_index else exchange_segment
-				name = [name]
-				df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-				data = df[df['Script Name'].isin(name)]
-				if data.empty:
-					new_name = self.instrument_df[((self.instrument_df['SEM_CUSTOM_SYMBOL']==name[0])|(self.instrument_df['SEM_TRADING_SYMBOL']==name[0]))].iloc[-1]['SEM_TRADING_SYMBOL']
-					new_name = [new_name]
-					df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-					data = df[df['Script Name'].isin(new_name)]
-				if data.empty:
-					df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-					if len(df)<100:
-						add = list()
-						row = len(df)+2
-						add.extend(name)
-						add.append(exchange)
-						self.sheet.range(f'A{row}').value = add
-						df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-						data = df[df['Script Name'].isin(name)]
-						check = data.fillna('0').iloc[-1]['LTP']=='0'
-						while check:
-							df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-							data = df[df['Script Name'].isin(name)]
-							check = data.fillna('0').iloc[-1]['LTP']=='0'
-				data = data.set_index('Script Name')['LTP']
-				return data.to_dict()[name[0]] if name[0] in data else data.to_dict()[new_name[0]]
-			df = self.sheet.range('A1').expand().options(pd.DataFrame, header=1, index=False).value
-			data = df[df['Script Name'].isin(name)]
-			data = data.set_index('Script Name')['LTP']
-			return data.to_dict()
+					self.logger.error(f"API call failed for index {name}. Response: {response}")
+					return 0.0
+
+			else:
+				# Logic for fetching F&O price
+				option = self.instrument_df[
+					(self.instrument_df['SEM_TRADING_SYMBOL'] == name) &
+					(self.instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO')
+				]
+				if option.empty:
+					self.logger.error(f"Could not find option '{name}' in instrument file.")
+					return 0.0
+
+				security_id = str(option.iloc[0]['SEM_SMST_SECURITY_ID'])
+				payload = {'NSE_FNO': [security_id]}
+				response = self.Dhan.quote_data(securities=payload)
+
+				if response and response.get('status') == 'success':
+					return response['data'][security_id]['ltp']
+				else:
+					self.logger.error(f"API call failed for option {name}. Response: {response}")
+					return 0.0
+
 		except Exception as e:
-			print(e)
-			self.logger.exception(f"Exception in getting LTP as {e}")
+			self.logger.exception(f"Exception in getting LTP for {name} as {e}")
+			traceback.print_exc()
 			return 0
 
 
