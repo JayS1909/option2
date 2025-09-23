@@ -46,7 +46,7 @@ def get_security_id_from_symbol(instrument_df, trading_symbol):
         filtered_df = instrument_df[
             (instrument_df['SEM_TRADING_SYMBOL'] == trading_symbol) &
             (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO') &
-            (instrument_df['SEM_INSTRUMENT_TYPE'] == 'OPTIDX')
+            (instrument_df['SEM_EXCH_INSTRUMENT_TYPE'] == 'OPTIDX')
         ]
         if not filtered_df.empty:
             return str(filtered_df.iloc[0]['SEM_SMST_SECURITY_ID'])
@@ -69,9 +69,10 @@ def find_weekly_expiry(instrument_df):
     Finds the nearest weekly expiry date for Bank Nifty options.
     """
     today = date.today()
+    # Filter for BANKNIFTY index options using the correct column names
     bn_options = instrument_df[
-        (instrument_df['SEM_UNDERLYING_TICKER'] == 'BANKNIFTY') &
-        (instrument_df['SEM_INSTRUMENT_TYPE'] == 'OPTIDX') &
+        (instrument_df['SM_SYMBOL_NAME'] == 'BANKNIFTY') &
+        (instrument_df['SEM_EXCH_INSTRUMENT_TYPE'] == 'OPTIDX') &
         (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO')
     ].copy()
     bn_options['EXPIRY_DT'] = pd.to_datetime(bn_options['SEM_EXPIRY_DATE'], format='%Y-%m-%d').dt.date

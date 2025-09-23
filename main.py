@@ -52,7 +52,7 @@ def get_security_id_from_symbol(instrument_df, trading_symbol):
         filtered_df = instrument_df[
             (instrument_df['SEM_TRADING_SYMBOL'] == trading_symbol) &
             (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO') &
-            (instrument_df['SEM_INSTRUMENT_TYPE'] == 'OPTIDX')
+            (instrument_df['SEM_EXCH_INSTRUMENT_TYPE'] == 'OPTIDX')
         ]
         if not filtered_df.empty:
             return str(filtered_df.iloc[0]['SEM_SMST_SECURITY_ID'])
