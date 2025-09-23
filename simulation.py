@@ -107,7 +107,7 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
         # Note: The symbol name for the index is 'BANKNIFTY' not 'NIFTY BANK'
         bn_index = instrument_df[
             (instrument_df['SM_SYMBOL_NAME'] == config.TRADING_SYMBOL) &
-            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_INDEX')
+            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE')
         ]
         if bn_index.empty:
             print(f"Error: Could not find '{config.TRADING_SYMBOL}' index in the instrument file.")
