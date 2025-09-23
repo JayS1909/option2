@@ -42,14 +42,17 @@ def get_instrument_file():
             print(f"FATAL: Error downloading instrument file: {e}")
             return None
 
-def get_security_id_from_symbol(instrument_df, trading_symbol, exchange='NSE'):
+def get_security_id_from_symbol(instrument_df, trading_symbol):
     """
-    Finds the security ID for a given trading symbol from the master instrument DataFrame.
+    Finds the security ID for a given trading symbol.
     """
     try:
+        # SEM_INSTRUMENT_TYPE = 'OPTIDX' for index options
+        # SEM_EXM_EXCH_ID = 'NSE_FNO' for F&O segment
         filtered_df = instrument_df[
             (instrument_df['SEM_TRADING_SYMBOL'] == trading_symbol) &
-            (instrument_df['SEM_EXM_EXCH_ID'] == exchange)
+            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_FNO') &
+            (instrument_df['SEM_INSTRUMENT_TYPE'] == 'OPTIDX')
         ]
         if not filtered_df.empty:
             return str(filtered_df.iloc[0]['SEM_SMST_SECURITY_ID'])
@@ -79,12 +82,12 @@ def get_live_price(dhan, security_id):
 
 def construct_trading_symbol(underlying, expiry_date, strike, option_type):
     """
-    Constructs the trading symbol string in the correct format.
-    Example: 'BANKNIFTY-Sep2025-48300-CE'
+    Constructs the Dhan-compatible trading symbol string.
     """
     dt_expiry = datetime.strptime(expiry_date, '%Y-%m-%d')
-    month_year_str = dt_expiry.strftime('%b%Y').capitalize()
-    return f"{underlying}-{month_year_str}-{strike}-{option_type}"
+    # Format required by Dhan is DDMMMYYYY, e.g., '25SEP2025'
+    expiry_str_dhan = dt_expiry.strftime('%d%b%Y').upper()
+    return f"{underlying}{expiry_str_dhan}{strike}{option_type}"
 
 def run_live_paper_trade(dhan):
     """
