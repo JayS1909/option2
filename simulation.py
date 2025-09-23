@@ -107,7 +107,7 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
         # Note: The symbol name for the index is 'BANKNIFTY' not 'NIFTY BANK'
         bn_index = instrument_df[
             (instrument_df['SM_SYMBOL_NAME'] == config.TRADING_SYMBOL) &
-            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE')
+            (instrument_df['SEM_EXM_EXCH_ID'] == 'NSE_INDEX')
         ]
         if bn_index.empty:
             print(f"Error: Could not find '{config.TRADING_SYMBOL}' index in the instrument file.")
@@ -117,11 +117,8 @@ def get_bank_nifty_spot_price(dhan, instrument_df):
 
         payload = {'NSE_INDEX': [security_id]}
         response = dhan.quote_data(securities=payload)
-        print(f"DEBUG: Full API response for spot price: {response}") # Final debug step
         if response and response.get('status') == 'success':
             return response['data'][security_id]['ltp']
-        else:
-            print(f"DEBUG: API call to fetch spot price failed. Full response: {response}")
 
     except Exception as e:
         print(f"Error fetching Bank Nifty spot price: {e}")
@@ -323,9 +320,6 @@ if __name__ == "__main__":
     # --- Securely Initialize Dhan API Client ---
     CLIENT_ID = os.getenv('DHAN_CLIENT_ID')
     ACCESS_TOKEN = os.getenv('DHAN_ACCESS_TOKEN')
-
-    print(f"DEBUG: Client ID read from environment: {CLIENT_ID}")
-    print(f"DEBUG: Access Token read from environment (first 10 chars): {ACCESS_TOKEN[:10] if ACCESS_TOKEN else 'None'}")
 
     if not CLIENT_ID or not ACCESS_TOKEN:
         print("FATAL ERROR: Environment variables DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN are not set.")
